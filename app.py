@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import html
 import re
-import tkinter as tk
-from tkinter import filedialog
 from pathlib import Path
 from urllib.parse import quote
 
 import streamlit as st
+
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+except ImportError:
+    tk = None
+    filedialog = None
 
 from pdf_searcher.db import (
     get_latest_saved_index,
@@ -100,6 +105,8 @@ def ensure_state() -> None:
 
 
 def choose_folder() -> str:
+    if tk is None or filedialog is None:
+        return ""
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
@@ -173,12 +180,15 @@ def render_sidebar() -> None:
             placeholder=r"C:\Users\user\Documents\pdfs",
             help="하위 폴더까지 재귀적으로 스캔합니다.",
         )
-        if st.button("폴더 선택", use_container_width=True):
-            selected = choose_folder()
-            if selected:
-                st.session_state.folder_input_pending = selected
-                update_settings(SETTINGS_FILE, {"last_folder": selected})
-                st.rerun()
+        if tk is not None and filedialog is not None:
+            if st.button("폴더 선택", use_container_width=True):
+                selected = choose_folder()
+                if selected:
+                    st.session_state.folder_input_pending = selected
+                    update_settings(SETTINGS_FILE, {"last_folder": selected})
+                    st.rerun()
+        else:
+            st.caption("이 배포 환경에서는 폴더 선택 창을 지원하지 않아 경로를 직접 입력해야 합니다.")
         if st.button("폴더 색인 생성", use_container_width=True):
             if not folder.strip():
                 st.error("PDF 폴더 경로를 입력해 주세요.")

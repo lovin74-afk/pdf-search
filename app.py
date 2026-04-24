@@ -56,6 +56,40 @@ def normalize_recent_searches(values: list[str]) -> list[str]:
     return normalized[:5]
 
 
+RESULT_BOX_STYLE = """
+<style>
+.result-snippet-box {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.7;
+    padding: 0.9rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--text-color) 18%, transparent);
+    border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--background-color) 88%, var(--text-color) 4%);
+    color: var(--text-color);
+    margin-bottom: 0.5rem;
+}
+.result-snippet-box mark {
+    background: color-mix(in srgb, #facc15 72%, transparent);
+    color: inherit;
+    padding: 0 0.1rem;
+    border-radius: 0.2rem;
+}
+@supports not (background: color-mix(in srgb, white 50%, black 50%)) {
+    .result-snippet-box {
+        border: 1px solid rgba(128, 128, 128, 0.35);
+        background: rgba(127, 127, 127, 0.08);
+        color: inherit;
+    }
+    .result-snippet-box mark {
+        background: rgba(250, 204, 21, 0.55);
+        color: inherit;
+    }
+}
+</style>
+"""
+
+
 def ensure_state() -> None:
     if "index_data" not in st.session_state:
         st.session_state.index_data = None
@@ -138,11 +172,10 @@ def render_result_card(result: dict, query: str) -> None:
         f"위치: 줄 {result['line_number']} | x={result['x']:.1f}, y={result['y']:.1f} | "
         f"일치 {result['match_count']}회"
     )
+    st.markdown(RESULT_BOX_STYLE, unsafe_allow_html=True)
     st.markdown(
         f"""
-        <div style="white-space: normal; overflow-wrap: anywhere; line-height: 1.7;
-                    padding: 0.9rem 1rem; border: 1px solid #d9d9d9; border-radius: 0.6rem;
-                    background: #fafafa; margin-bottom: 0.5rem;">
+        <div class="result-snippet-box">
             {highlight_query(result["snippet"], query)}
         </div>
         """,
@@ -161,9 +194,7 @@ def render_result_card(result: dict, query: str) -> None:
         st.write("확장 문맥")
         st.markdown(
             f"""
-            <div style="white-space: normal; overflow-wrap: anywhere; line-height: 1.7;
-                        padding: 0.9rem 1rem; border: 1px solid #d9d9d9; border-radius: 0.6rem;
-                        background: #fafafa;">
+            <div class="result-snippet-box">
                 {highlight_query(result["context_snippet"], query)}
             </div>
             """,

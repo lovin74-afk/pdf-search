@@ -8,6 +8,7 @@ pytest-cache-files-*/
 
 # Local app data
 .pdf_search_index/
+*.pdf
 
 # Virtual environments
 .venv/

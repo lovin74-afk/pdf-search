@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import base64
+import json
+
 import html
 import re
 from pathlib import Path
 from urllib.parse import quote
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:
     import tkinter as tk
@@ -25,7 +29,6 @@ from pdf_searcher.indexer import (
     build_index_from_uploaded_files,
 )
 from pdf_searcher.links import build_pdf_viewer_link
-from pdf_searcher.server import ensure_local_pdf_server
 from pdf_searcher.settings import load_settings, update_settings
 from pdf_searcher.search import search_index
 
@@ -90,6 +93,243 @@ RESULT_BOX_STYLE = """
 """
 
 
+VIEWER_HTML_TEMPLATE = """
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDF Viewer</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f3efe6;
+      --surface: rgba(255,255,255,0.94);
+      --text: #17202a;
+      --muted: #51606f;
+      --line: rgba(23,32,42,0.12);
+      --accent: #0b6bcb;
+      --selection: rgba(0, 120, 215, 0.28);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #13171c;
+        --surface: rgba(22,27,34,0.94);
+        --text: #edf2f7;
+        --muted: #a9b4c0;
+        --line: rgba(237,242,247,0.12);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, rgba(11,107,203,0.12), transparent 38%), var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", sans-serif;
+    }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 18px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(14px);
+    }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: white;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .meta { color: var(--muted); font-size: 14px; }
+    #viewer {
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+    }
+    .page-wrap {
+      position: relative;
+      display: inline-block;
+      background: white;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.18);
+    }
+    canvas {
+      display: block;
+      max-width: min(96vw, 1240px);
+      height: auto;
+    }
+    .textLayer {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      line-height: 1;
+    }
+    .textLayer span {
+      position: absolute;
+      white-space: pre;
+      transform-origin: 0 0;
+      color: transparent;
+      user-select: text;
+      cursor: text;
+    }
+    .textLayer span span {
+      position: static;
+      transform: none;
+    }
+    .textLayer .highlight {
+      background: var(--selection);
+      border-radius: 2px;
+    }
+    .textLayer ::selection {
+      background: rgba(0, 120, 215, 0.34);
+    }
+    .error {
+      margin: 24px auto;
+      width: min(900px, calc(100vw - 32px));
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.12);
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="badge" id="pageLabel"></span>
+    <strong id="fileLabel"></strong>
+    <span class="meta" id="queryLabel"></span>
+  </div>
+  <div id="viewer">
+    <div class="page-wrap">
+      <canvas id="pdfCanvas"></canvas>
+      <div id="textLayer" class="textLayer"></div>
+    </div>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    const payload = JSON.parse(atob("__PAYLOAD__"));
+    const pdfBytes = Uint8Array.from(atob(payload.pdf_base64), ch => ch.charCodeAt(0));
+    const pageNumber = payload.page_number;
+    const query = payload.query || "";
+    const fileName = payload.file_name || "PDF";
+
+    document.getElementById("pageLabel").textContent = `${pageNumber}페이지`;
+    document.getElementById("fileLabel").textContent = fileName;
+    document.getElementById("queryLabel").textContent = query ? `검색어: ${query}` : "";
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    function selectMatchText(node) {
+      if (!node) return;
+      const selection = window.getSelection();
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    async function render() {
+      const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
+      const pdf = await loadingTask.promise;
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1.6 });
+      const canvas = document.getElementById("pdfCanvas");
+      const context = canvas.getContext("2d");
+      const textLayer = document.getElementById("textLayer");
+
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = viewport.width + "px";
+      canvas.style.height = viewport.height + "px";
+      textLayer.style.width = viewport.width + "px";
+      textLayer.style.height = viewport.height + "px";
+      textLayer.innerHTML = "";
+
+      await page.render({ canvasContext: context, viewport }).promise;
+
+      const textContent = await page.getTextContent();
+      for (const item of textContent.items) {
+        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        const span = document.createElement("span");
+        span.textContent = item.str;
+        span.style.left = `${tx[4]}px`;
+        span.style.top = `${tx[5] - item.height * viewport.scale}px`;
+        span.style.fontSize = `${item.height * viewport.scale}px`;
+        span.style.fontFamily = item.fontName || "sans-serif";
+        span.style.transform = `scaleX(${tx[0] / (item.height || 1)})`;
+        textLayer.appendChild(span);
+      }
+
+      if (!query) return;
+
+      const lowerQuery = query.toLocaleLowerCase();
+      const spans = Array.from(textLayer.querySelectorAll("span"));
+      let firstMatch = null;
+
+      for (const span of spans) {
+        const text = span.textContent || "";
+        const lowerText = text.toLocaleLowerCase();
+        const matchIndex = lowerText.indexOf(lowerQuery);
+        if (matchIndex === -1) continue;
+
+        const before = text.slice(0, matchIndex);
+        const match = text.slice(matchIndex, matchIndex + query.length);
+        const after = text.slice(matchIndex + query.length);
+        span.innerHTML = "";
+
+        if (before) {
+          const beforeNode = document.createElement("span");
+          beforeNode.textContent = before;
+          span.appendChild(beforeNode);
+        }
+
+        const mark = document.createElement("span");
+        mark.className = "highlight";
+        mark.textContent = match;
+        span.appendChild(mark);
+
+        if (after) {
+          const afterNode = document.createElement("span");
+          afterNode.textContent = after;
+          span.appendChild(afterNode);
+        }
+
+        if (!firstMatch) firstMatch = mark;
+      }
+
+      if (firstMatch) {
+        firstMatch.scrollIntoView({ behavior: "smooth", block: "center" });
+        setTimeout(() => selectMatchText(firstMatch), 120);
+      }
+    }
+
+    render().catch((error) => {
+      document.body.innerHTML = `
+        <div class="error">
+          <strong>PDF를 여는 중 오류가 발생했습니다.</strong>
+          <pre>${String(error)}</pre>
+        </div>
+      `;
+    });
+  </script>
+</body>
+</html>
+"""
+
+
 def ensure_state() -> None:
     if "index_data" not in st.session_state:
         st.session_state.index_data = None
@@ -151,15 +391,75 @@ def choose_folder() -> str:
     return selected or ""
 
 
-def render_result_card(result: dict, query: str) -> None:
-    viewer_link = build_pdf_viewer_link(
-        result["file_path"],
-        result["page_number"],
-        query,
-        result["x"],
-        result["y"],
-        result["font_size"],
+def resolve_pdf_path(file_path: str, file_name: str) -> Path | None:
+    candidates: list[Path] = []
+    if file_path:
+        candidates.append(Path(file_path))
+    if file_name:
+        candidates.append(Path.cwd() / file_name)
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate.resolve()
+
+    if file_name:
+        matches = list(Path.cwd().rglob(file_name))
+        if matches:
+            return matches[0].resolve()
+    return None
+
+
+def render_pdf_viewer_mode() -> bool:
+    if st.query_params.get("viewer") != "1":
+        return False
+
+    file_path = st.query_params.get("path", "")
+    file_name = st.query_params.get("file_name", "")
+    query = st.query_params.get("query", "")
+    page_raw = st.query_params.get("page", "1")
+
+    try:
+        page_number = max(1, int(page_raw))
+    except ValueError:
+        page_number = 1
+
+    resolved_path = resolve_pdf_path(file_path, file_name)
+    st.set_page_config(page_title="PDF Viewer", page_icon="PDF", layout="wide")
+
+    if resolved_path is None:
+        st.error("PDF 파일을 찾을 수 없습니다.")
+        st.caption("배포 환경에서는 현재 앱 서버에 존재하는 PDF만 열 수 있습니다.")
+        return True
+
+    payload = {
+        "pdf_base64": base64.b64encode(resolved_path.read_bytes()).decode("ascii"),
+        "page_number": page_number,
+        "query": query,
+        "file_name": resolved_path.name,
+    }
+    payload_b64 = base64.b64encode(json.dumps(payload, ensure_ascii=False).encode("utf-8")).decode("ascii")
+
+    components.html(
+        VIEWER_HTML_TEMPLATE.replace("__PAYLOAD__", payload_b64),
+        height=1200,
+        scrolling=True,
     )
+    return True
+
+
+def render_result_card(result: dict, query: str) -> None:
+    resolved_pdf = resolve_pdf_path(result["file_path"], result["file_name"])
+    viewer_link = None
+    if resolved_pdf is not None:
+        viewer_link = build_pdf_viewer_link(
+            str(resolved_pdf),
+            result["file_name"],
+            result["page_number"],
+            query,
+            result["x"],
+            result["y"],
+            result["font_size"],
+        )
     if viewer_link:
         title = (
             f'<a href="{html.escape(viewer_link)}" target="_blank" rel="noopener noreferrer">'
@@ -382,10 +682,12 @@ def render_recent_searches() -> None:
 
 
 def main() -> None:
+    if render_pdf_viewer_mode():
+        return
+
     st.set_page_config(page_title="PDF Searcher", page_icon="PDF", layout="wide")
     ensure_state()
     process_recent_search_action()
-    ensure_local_pdf_server()
     render_sidebar()
 
     st.title("PDF Searcher")

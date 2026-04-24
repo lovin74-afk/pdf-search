@@ -283,7 +283,17 @@ def ensure_local_pdf_server(host: str = "127.0.0.1", port: int = 8765) -> str:
         if isinstance(base_url, str):
             return base_url
 
-        server = ThreadingHTTPServer((host, port), PdfFileHandler)
+        if _server_state.get("base_url") is False:
+            return ""
+
+        try:
+            server = ThreadingHTTPServer((host, port), PdfFileHandler)
+        except OSError:
+            _server_state["server"] = None
+            _server_state["thread"] = None
+            _server_state["base_url"] = False
+            return ""
+
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
 

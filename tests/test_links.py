@@ -10,26 +10,28 @@ def test_build_pdf_viewer_link_for_local_pdf() -> None:
     try:
         link = build_pdf_viewer_link(
             str(pdf_path.resolve()),
+            pdf_path.name,
             3,
             "beta gamma",
             120.5,
             640.0,
             11.0,
-            base_url="http://127.0.0.1:8765",
         )
         assert link is not None
+        assert "viewer=1" in link
+        assert "file_name=sample%20file.pdf" in link
         assert "page=3" in link
         assert "query=beta%20gamma" in link
         assert "x=120.5" in link
         assert "font_size=11.0" in link
-        assert link.startswith("http://127.0.0.1:8765/viewer?path=")
+        assert link.startswith("?viewer=1&path=")
     finally:
         if pdf_path.exists():
             pdf_path.unlink()
 
 
 def test_build_pdf_viewer_link_returns_none_for_non_local_entry() -> None:
-    assert build_pdf_viewer_link("uploaded.pdf", 1, "beta", 0.0, 0.0, 12.0) is None
+    assert build_pdf_viewer_link("", "", 1, "beta", 0.0, 0.0, 12.0) is None
 
 
 def test_parse_range_header_supports_standard_byte_ranges() -> None:

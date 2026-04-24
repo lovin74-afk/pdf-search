@@ -1,0 +1,19 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Test and local sandbox artifacts
+.pytest_cache/
+pytest-cache-files-*/
+
+# Local app data
+.pdf_search_index/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS/editor files
+.DS_Store
+Thumbs.db

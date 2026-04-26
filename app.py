@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import base64
+import hmac
 import json
+import os
 
 import html
 import re
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -35,6 +38,7 @@ from pdf_searcher.search import search_index
 
 DB_FILE = Path(".pdf_search_index") / "indexes.db"
 SETTINGS_FILE = Path(".pdf_search_index") / "settings.json"
+UPLOADED_ORIGINALS_DIR = Path(".uploaded_originals")
 
 
 def highlight_query(text: str, query: str) -> str:
@@ -57,6 +61,43 @@ def normalize_recent_searches(values: list[str]) -> list[str]:
         seen.add(cleaned)
         normalized.append(cleaned)
     return normalized[:5]
+
+
+def get_auth_credentials() -> tuple[str, str]:
+    secret_username = st.secrets.get("APP_USERNAME", "")
+    secret_password = st.secrets.get("APP_PASSWORD", "")
+    env_username = os.getenv("APP_USERNAME", "")
+    env_password = os.getenv("APP_PASSWORD", "")
+
+    username = str(secret_username or env_username).strip()
+    password = str(secret_password or env_password)
+    return username, password
+
+
+def get_auth_settings() -> tuple[int, int]:
+    secret_attempts = st.secrets.get("APP_MAX_LOGIN_ATTEMPTS", 5)
+    secret_lockout = st.secrets.get("APP_LOCKOUT_MINUTES", 15)
+    env_attempts = os.getenv("APP_MAX_LOGIN_ATTEMPTS")
+    env_lockout = os.getenv("APP_LOCKOUT_MINUTES")
+
+    try:
+        max_attempts = max(1, int(env_attempts if env_attempts is not None else secret_attempts))
+    except (TypeError, ValueError):
+        max_attempts = 5
+
+    try:
+        lockout_minutes = max(1, int(env_lockout if env_lockout is not None else secret_lockout))
+    except (TypeError, ValueError):
+        lockout_minutes = 15
+
+    return max_attempts, lockout_minutes
+
+
+def check_credentials(username: str, password: str) -> bool:
+    expected_username, expected_password = get_auth_credentials()
+    if not expected_username or not expected_password:
+        return False
+    return hmac.compare_digest(username, expected_username) and hmac.compare_digest(password, expected_password)
 
 
 RESULT_BOX_STYLE = """
@@ -331,6 +372,12 @@ VIEWER_HTML_TEMPLATE = """
 
 
 def ensure_state() -> None:
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if "login_failures" not in st.session_state:
+        st.session_state.login_failures = 0
+    if "lockout_until" not in st.session_state:
+        st.session_state.lockout_until = 0.0
     if "index_data" not in st.session_state:
         st.session_state.index_data = None
     if "index_source" not in st.session_state:
@@ -390,6 +437,52 @@ def ensure_state() -> None:
         st.session_state.autoload_attempted = True
 
 
+def render_login_gate() -> bool:
+    expected_username, expected_password = get_auth_credentials()
+    max_attempts, lockout_minutes = get_auth_settings()
+
+    if not expected_username or not expected_password:
+        st.error("로그인 정보가 설정되지 않았습니다.")
+        st.caption("배포 환경에서는 Streamlit secrets 또는 환경변수에 `APP_USERNAME`, `APP_PASSWORD`를 설정해야 합니다.")
+        return False
+
+    if st.session_state.authenticated:
+        return True
+
+    now = time.time()
+    if st.session_state.lockout_until > now:
+        remaining_seconds = int(st.session_state.lockout_until - now)
+        remaining_minutes = max(1, (remaining_seconds + 59) // 60)
+        st.title("PDF Searcher")
+        st.error(f"로그인 시도가 너무 많아 잠시 잠겼습니다. 약 {remaining_minutes}분 후 다시 시도해 주세요.")
+        return False
+
+    st.title("PDF Searcher")
+    st.caption("아이디와 비밀번호를 입력해야 사용할 수 있습니다.")
+
+    with st.form("login_form", clear_on_submit=False):
+        username = st.text_input("아이디")
+        password = st.text_input("비밀번호", type="password")
+        submitted = st.form_submit_button("로그인")
+
+    if submitted:
+        if check_credentials(username.strip(), password):
+            st.session_state.authenticated = True
+            st.session_state.login_failures = 0
+            st.session_state.lockout_until = 0.0
+            st.rerun()
+        st.session_state.login_failures += 1
+        remaining_attempts = max_attempts - st.session_state.login_failures
+        if remaining_attempts <= 0:
+            st.session_state.lockout_until = time.time() + (lockout_minutes * 60)
+            st.session_state.login_failures = 0
+            st.error(f"로그인 실패 횟수를 초과했습니다. {lockout_minutes}분 후 다시 시도해 주세요.")
+            return False
+        st.error(f"아이디 또는 비밀번호가 올바르지 않습니다. 남은 시도 {remaining_attempts}회")
+
+    return False
+
+
 def choose_folder() -> str:
     if tk is None or filedialog is None:
         return ""
@@ -401,6 +494,16 @@ def choose_folder() -> str:
     finally:
         root.destroy()
     return selected or ""
+
+
+def save_uploaded_originals(files) -> int:
+    UPLOADED_ORIGINALS_DIR.mkdir(parents=True, exist_ok=True)
+    saved_count = 0
+    for file in files:
+        target = UPLOADED_ORIGINALS_DIR / file.name
+        target.write_bytes(file.getbuffer())
+        saved_count += 1
+    return saved_count
 
 
 def get_source_folder() -> Path | None:
@@ -425,6 +528,7 @@ def resolve_pdf_path(file_path: str, file_name: str) -> Path | None:
         candidates.append(Path(file_path))
     if file_name:
         candidates.append(Path.cwd() / file_name)
+        candidates.append(UPLOADED_ORIGINALS_DIR / file_name)
     source_folder = get_source_folder()
     if source_folder is not None and file_name:
         candidates.append(source_folder / file_name)
@@ -434,6 +538,10 @@ def resolve_pdf_path(file_path: str, file_name: str) -> Path | None:
             return candidate.resolve()
 
     if file_name:
+        if UPLOADED_ORIGINALS_DIR.exists():
+            matches = list(UPLOADED_ORIGINALS_DIR.rglob(file_name))
+            if matches:
+                return matches[0].resolve()
         if source_folder is not None:
             matches = list(source_folder.rglob(file_name))
             if matches:
@@ -539,6 +647,13 @@ def render_result_card(result: dict, query: str) -> None:
 
 def render_sidebar() -> None:
     with st.sidebar:
+        if st.button("로그아웃", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.login_failures = 0
+            st.session_state.lockout_until = 0.0
+            st.rerun()
+
+        st.divider()
         st.header("색인 만들기")
         folder = st.text_input(
             "PDF 폴더 경로",
@@ -562,7 +677,7 @@ def render_sidebar() -> None:
             "원본 PDF 폴더",
             key="source_folder",
             placeholder=r"C:\Users\user\Documents\pdfs",
-            help="검색 결과에서 원본 보기 링크를 만들 때 이 폴더 아래에서 같은 파일명을 찾습니다.",
+            help="로컬 실행에서는 이 폴더 아래에서 같은 파일명을 찾아 원본 보기 링크를 만듭니다.",
         )
         if tk is not None and filedialog is not None:
             if st.button("원본 폴더 선택", use_container_width=True):
@@ -576,6 +691,19 @@ def render_sidebar() -> None:
 
         if source_folder.strip():
             update_settings(SETTINGS_FILE, {"source_folder": source_folder.strip()})
+
+        original_uploads = st.file_uploader(
+            "또는 원본 PDF 업로드",
+            type=["pdf"],
+            accept_multiple_files=True,
+            help="배포 환경에서는 사용자 PC 폴더에 직접 접근할 수 없으므로, 원본 보기가 필요하면 PDF를 여기에 업로드해 주세요.",
+        )
+        if st.button("업로드한 원본 저장", use_container_width=True):
+            if not original_uploads:
+                st.error("하나 이상의 원본 PDF를 업로드해 주세요.")
+            else:
+                saved_count = save_uploaded_originals(original_uploads)
+                st.success(f"{saved_count}개 원본 PDF를 앱 서버에 저장했습니다.")
 
         if st.button("폴더 색인 생성", use_container_width=True):
             if not folder.strip():
@@ -746,11 +874,15 @@ def render_recent_searches() -> None:
 
 
 def main() -> None:
+    st.set_page_config(page_title="PDF Searcher", page_icon="PDF", layout="wide")
+    ensure_state()
+
+    if not render_login_gate():
+        return
+
     if render_pdf_viewer_mode():
         return
 
-    st.set_page_config(page_title="PDF Searcher", page_icon="PDF", layout="wide")
-    ensure_state()
     process_recent_search_action()
     render_sidebar()
 

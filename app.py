@@ -329,7 +329,8 @@ VIEWER_HTML_TEMPLATE = """
   </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
-    const payload = JSON.parse(atob("__PAYLOAD__"));
+    const payloadBytes = Uint8Array.from(atob("__PAYLOAD__"), ch => ch.charCodeAt(0));
+    const payload = JSON.parse(new TextDecoder("utf-8").decode(payloadBytes));
     const pdfBytes = Uint8Array.from(atob(payload.pdf_base64), ch => ch.charCodeAt(0));
     const pageNumber = payload.page_number;
     const query = payload.query || "";

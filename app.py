@@ -238,11 +238,12 @@ VIEWER_HTML_TEMPLATE = """
       transform: none;
     }
     .textLayer .highlight {
-      background: var(--selection);
+      background: rgba(0, 120, 215, 0.32);
       border-radius: 2px;
+      box-shadow: inset 0 0 0 9999px rgba(0, 120, 215, 0.22);
     }
     .textLayer ::selection {
-      background: rgba(0, 120, 215, 0.34);
+      background: rgba(0, 120, 215, 0.38);
     }
     .error {
       margin: 24px auto;
@@ -288,12 +289,16 @@ VIEWER_HTML_TEMPLATE = """
 
     function selectMatchText(node) {
       if (!node) return;
+      window.focus();
+      document.body.tabIndex = -1;
+      document.body.focus();
       const selection = window.getSelection();
       if (!selection) return;
       const range = document.createRange();
       range.selectNodeContents(node);
       selection.removeAllRanges();
       selection.addRange(range);
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
     async function render() {
@@ -368,6 +373,7 @@ VIEWER_HTML_TEMPLATE = """
       if (firstMatch) {
         firstMatch.scrollIntoView({ behavior: "smooth", block: "center" });
         setTimeout(() => selectMatchText(firstMatch), 120);
+        setTimeout(() => selectMatchText(firstMatch), 320);
       }
     }
 

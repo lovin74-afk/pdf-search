@@ -188,6 +188,7 @@ VIEWER_HTML_TEMPLATE = """
       z-index: 10;
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 12px;
       padding: 12px 18px;
       background: var(--surface);
@@ -203,6 +204,49 @@ VIEWER_HTML_TEMPLATE = """
       font-weight: 700;
     }
     .meta { color: var(--muted); font-size: 14px; }
+    .searchbar {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.55);
+    }
+    @media (prefers-color-scheme: dark) {
+      .searchbar {
+        background: rgba(255,255,255,0.04);
+      }
+    }
+    .searchbar input {
+      width: min(38vw, 280px);
+      border: 0;
+      outline: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .searchbar button {
+      border: 0;
+      border-radius: 999px;
+      background: var(--accent);
+      color: white;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .searchbar button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+    .searchbar .count {
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 54px;
+      text-align: right;
+    }
     #viewer {
       padding: 24px;
       display: flex;
@@ -269,6 +313,13 @@ VIEWER_HTML_TEMPLATE = """
     <span class="badge" id="pageLabel"></span>
     <strong id="fileLabel"></strong>
     <span class="meta" id="queryLabel"></span>
+    <div class="searchbar">
+      <input id="searchInput" type="text" placeholder="페이지 내 검색" />
+      <button id="searchButton" type="button">검색</button>
+      <button id="prevButton" class="secondary" type="button">이전</button>
+      <button id="nextButton" class="secondary" type="button">다음</button>
+      <span id="searchCount" class="count"></span>
+    </div>
   </div>
   <div id="viewer">
     <div class="page-wrap">
@@ -283,10 +334,13 @@ VIEWER_HTML_TEMPLATE = """
     const pageNumber = payload.page_number;
     const query = payload.query || "";
     const fileName = payload.file_name || "PDF";
+    let currentMatches = [];
+    let currentMatchIndex = -1;
 
     document.getElementById("pageLabel").textContent = `${pageNumber}페이지`;
     document.getElementById("fileLabel").textContent = fileName;
     document.getElementById("queryLabel").textContent = query ? `검색어: ${query}` : "";
+    document.getElementById("searchInput").value = query;
 
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -302,6 +356,77 @@ VIEWER_HTML_TEMPLATE = """
       selection.removeAllRanges();
       selection.addRange(range);
       node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    function resetSpan(span) {
+      const originalText = span.dataset.originalText;
+      if (typeof originalText !== "string") return;
+      span.textContent = originalText;
+    }
+
+    function clearHighlights() {
+      const spans = Array.from(document.querySelectorAll("#textLayer > span"));
+      for (const span of spans) {
+        resetSpan(span);
+      }
+      currentMatches = [];
+      currentMatchIndex = -1;
+      document.getElementById("searchCount").textContent = "";
+      window.getSelection()?.removeAllRanges();
+    }
+
+    function focusMatch(index) {
+      if (!currentMatches.length) return;
+      currentMatchIndex = ((index % currentMatches.length) + currentMatches.length) % currentMatches.length;
+      const match = currentMatches[currentMatchIndex];
+      document.getElementById("searchCount").textContent = `${currentMatchIndex + 1}/${currentMatches.length}`;
+      selectMatchText(match);
+    }
+
+    function applySearch(term) {
+      clearHighlights();
+      const trimmed = (term || "").trim();
+      if (!trimmed) return;
+
+      const lowerTerm = trimmed.toLocaleLowerCase();
+      const spans = Array.from(document.querySelectorAll("#textLayer > span"));
+
+      for (const span of spans) {
+        const text = span.dataset.originalText || span.textContent || "";
+        const lowerText = text.toLocaleLowerCase();
+        const matchIndex = lowerText.indexOf(lowerTerm);
+        if (matchIndex === -1) continue;
+
+        const before = text.slice(0, matchIndex);
+        const match = text.slice(matchIndex, matchIndex + trimmed.length);
+        const after = text.slice(matchIndex + trimmed.length);
+        span.innerHTML = "";
+
+        if (before) {
+          const beforeNode = document.createElement("span");
+          beforeNode.textContent = before;
+          span.appendChild(beforeNode);
+        }
+
+        const mark = document.createElement("span");
+        mark.className = "highlight";
+        mark.textContent = match;
+        mark.style.color = "#ffffff";
+        span.appendChild(mark);
+        currentMatches.push(mark);
+
+        if (after) {
+          const afterNode = document.createElement("span");
+          afterNode.textContent = after;
+          span.appendChild(afterNode);
+        }
+      }
+
+      if (currentMatches.length) {
+        focusMatch(0);
+      } else {
+        document.getElementById("searchCount").textContent = "0건";
+      }
     }
 
     async function render() {
@@ -328,6 +453,7 @@ VIEWER_HTML_TEMPLATE = """
         const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
         const span = document.createElement("span");
         span.textContent = item.str;
+        span.dataset.originalText = item.str;
         span.style.left = `${tx[4]}px`;
         span.style.top = `${tx[5] - item.height * viewport.scale}px`;
         span.style.fontSize = `${item.height * viewport.scale}px`;
@@ -336,50 +462,40 @@ VIEWER_HTML_TEMPLATE = """
         textLayer.appendChild(span);
       }
 
-      if (!query) return;
-
-      const lowerQuery = query.toLocaleLowerCase();
-      const spans = Array.from(textLayer.querySelectorAll("span"));
-      let firstMatch = null;
-
-      for (const span of spans) {
-        const text = span.textContent || "";
-        const lowerText = text.toLocaleLowerCase();
-        const matchIndex = lowerText.indexOf(lowerQuery);
-        if (matchIndex === -1) continue;
-
-        const before = text.slice(0, matchIndex);
-        const match = text.slice(matchIndex, matchIndex + query.length);
-        const after = text.slice(matchIndex + query.length);
-        span.innerHTML = "";
-
-        if (before) {
-          const beforeNode = document.createElement("span");
-          beforeNode.textContent = before;
-          span.appendChild(beforeNode);
-        }
-
-          const mark = document.createElement("span");
-          mark.className = "highlight";
-          mark.textContent = match;
-          mark.style.color = "#ffffff";
-          span.appendChild(mark);
-
-        if (after) {
-          const afterNode = document.createElement("span");
-          afterNode.textContent = after;
-          span.appendChild(afterNode);
-        }
-
-        if (!firstMatch) firstMatch = mark;
-      }
-
-      if (firstMatch) {
-        firstMatch.scrollIntoView({ behavior: "smooth", block: "center" });
-        setTimeout(() => selectMatchText(firstMatch), 120);
-        setTimeout(() => selectMatchText(firstMatch), 320);
-      }
+      applySearch(query);
     }
+
+    document.getElementById("searchButton").addEventListener("click", () => {
+      applySearch(document.getElementById("searchInput").value);
+    });
+
+    document.getElementById("searchInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applySearch(event.currentTarget.value);
+      }
+    });
+
+    document.getElementById("prevButton").addEventListener("click", () => {
+      if (currentMatches.length) {
+        focusMatch(currentMatchIndex - 1);
+      }
+    });
+
+    document.getElementById("nextButton").addEventListener("click", () => {
+      if (currentMatches.length) {
+        focusMatch(currentMatchIndex + 1);
+      }
+    });
+
+    window.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        const input = document.getElementById("searchInput");
+        input.focus();
+        input.select();
+      }
+    });
 
     render().catch((error) => {
       document.body.innerHTML = `

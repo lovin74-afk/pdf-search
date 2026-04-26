@@ -100,6 +100,23 @@ def check_credentials(username: str, password: str) -> bool:
     return hmac.compare_digest(username, expected_username) and hmac.compare_digest(password, expected_password)
 
 
+def build_app_access_token() -> str:
+    expected_username, expected_password = get_auth_credentials()
+    if not expected_username or not expected_password:
+        return ""
+    message = f"{expected_username}|app-access".encode("utf-8")
+    return hmac.new(expected_password.encode("utf-8"), message, "sha256").hexdigest()
+
+
+def is_valid_app_access_token(access_token: str) -> bool:
+    if not access_token:
+        return False
+    expected_token = build_app_access_token()
+    if not expected_token:
+        return False
+    return hmac.compare_digest(access_token, expected_token)
+
+
 def build_viewer_access_token(file_path: str, file_name: str, page_number: int, query: str) -> str:
     _, expected_password = get_auth_credentials()
     message = f"{file_path}|{file_name}|{page_number}|{query.strip()}".encode("utf-8")
@@ -590,6 +607,11 @@ def render_login_gate() -> bool:
     if st.session_state.authenticated:
         return True
 
+    access_token = st.query_params.get("access_token", "")
+    if is_valid_app_access_token(access_token):
+        st.session_state.authenticated = True
+        return True
+
     now = time.time()
     if st.session_state.lockout_until > now:
         remaining_seconds = int(st.session_state.lockout_until - now)
@@ -962,6 +984,7 @@ def render_recent_searches() -> None:
         return
 
     chips: list[str] = []
+    access_token = build_app_access_token()
     for term in recent_searches:
         encoded = quote(term)
         chips.append(
@@ -969,11 +992,13 @@ def render_recent_searches() -> None:
             f'<form class="recent-chip-form" method="get">'
             f'<input type="hidden" name="recent_action" value="search">'
             f'<input type="hidden" name="recent_value" value="{html.escape(term)}">'
+            f'<input type="hidden" name="access_token" value="{html.escape(access_token)}">'
             f'<button type="submit" class="recent-chip-term">{html.escape(term)}</button>'
             f"</form>"
             f'<form class="recent-chip-form" method="get">'
             f'<input type="hidden" name="recent_action" value="delete">'
             f'<input type="hidden" name="recent_value" value="{html.escape(term)}">'
+            f'<input type="hidden" name="access_token" value="{html.escape(access_token)}">'
             f'<button type="submit" class="recent-chip-delete" aria-label="{html.escape(term)} 삭제">x</button>'
             f"</form>"
             f"</span>"

@@ -339,6 +339,10 @@ def ensure_state() -> None:
         st.session_state.folder_input = ""
     if "folder_input_pending" not in st.session_state:
         st.session_state.folder_input_pending = ""
+    if "source_folder" not in st.session_state:
+        st.session_state.source_folder = ""
+    if "source_folder_pending" not in st.session_state:
+        st.session_state.source_folder_pending = ""
     if "autoload_attempted" not in st.session_state:
         st.session_state.autoload_attempted = False
     if "search_input" not in st.session_state:
@@ -352,6 +356,10 @@ def ensure_state() -> None:
         st.session_state.folder_input = st.session_state.folder_input_pending
         st.session_state.folder_input_pending = ""
 
+    if st.session_state.source_folder_pending:
+        st.session_state.source_folder = st.session_state.source_folder_pending
+        st.session_state.source_folder_pending = ""
+
     if st.session_state.search_input_pending:
         st.session_state.search_input = st.session_state.search_input_pending
         st.session_state.search_input_pending = ""
@@ -361,6 +369,10 @@ def ensure_state() -> None:
         last_folder = settings.get("last_folder", "")
         if isinstance(last_folder, str):
             st.session_state.folder_input = last_folder
+    if not st.session_state.source_folder:
+        source_folder = settings.get("source_folder", "")
+        if isinstance(source_folder, str):
+            st.session_state.source_folder = source_folder
     if not st.session_state.recent_searches:
         recent_searches = settings.get("recent_searches", [])
         if isinstance(recent_searches, list):
@@ -391,18 +403,41 @@ def choose_folder() -> str:
     return selected or ""
 
 
+def get_source_folder() -> Path | None:
+    source_folder = st.session_state.get("source_folder", "")
+    if source_folder:
+        source_path = Path(source_folder)
+        if source_path.exists() and source_path.is_dir():
+            return source_path.resolve()
+
+    settings = load_settings(SETTINGS_FILE)
+    stored_source_folder = settings.get("source_folder", "")
+    if isinstance(stored_source_folder, str) and stored_source_folder:
+        source_path = Path(stored_source_folder)
+        if source_path.exists() and source_path.is_dir():
+            return source_path.resolve()
+    return None
+
+
 def resolve_pdf_path(file_path: str, file_name: str) -> Path | None:
     candidates: list[Path] = []
     if file_path:
         candidates.append(Path(file_path))
     if file_name:
         candidates.append(Path.cwd() / file_name)
+    source_folder = get_source_folder()
+    if source_folder is not None and file_name:
+        candidates.append(source_folder / file_name)
 
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
             return candidate.resolve()
 
     if file_name:
+        if source_folder is not None:
+            matches = list(source_folder.rglob(file_name))
+            if matches:
+                return matches[0].resolve()
         matches = list(Path.cwd().rglob(file_name))
         if matches:
             return matches[0].resolve()
@@ -490,7 +525,7 @@ def render_result_card(result: dict, query: str) -> None:
                 f'[새 탭에서 이 위치 열기]({viewer_link})'
             )
         else:
-            st.caption("이 결과는 로컬 파일 경로가 없어 바로 열기 링크를 만들 수 없습니다.")
+            st.caption("원본 파일을 찾지 못했습니다. 사이드바의 `원본 PDF 폴더`를 지정하면 같은 파일명 기준으로 찾아 열 수 있습니다.")
         st.write("확장 문맥")
         st.markdown(
             f"""
@@ -520,6 +555,28 @@ def render_sidebar() -> None:
                     st.rerun()
         else:
             st.caption("이 배포 환경에서는 폴더 선택 창을 지원하지 않아 경로를 직접 입력해야 합니다.")
+
+        st.divider()
+        st.subheader("원본 파일 위치")
+        source_folder = st.text_input(
+            "원본 PDF 폴더",
+            key="source_folder",
+            placeholder=r"C:\Users\user\Documents\pdfs",
+            help="검색 결과에서 원본 보기 링크를 만들 때 이 폴더 아래에서 같은 파일명을 찾습니다.",
+        )
+        if tk is not None and filedialog is not None:
+            if st.button("원본 폴더 선택", use_container_width=True):
+                selected = choose_folder()
+                if selected:
+                    st.session_state.source_folder_pending = selected
+                    update_settings(SETTINGS_FILE, {"source_folder": selected})
+                    st.rerun()
+        else:
+            st.caption("이 배포 환경에서는 폴더 선택 창을 지원하지 않아 경로를 직접 입력해야 합니다.")
+
+        if source_folder.strip():
+            update_settings(SETTINGS_FILE, {"source_folder": source_folder.strip()})
+
         if st.button("폴더 색인 생성", use_container_width=True):
             if not folder.strip():
                 st.error("PDF 폴더 경로를 입력해 주세요.")
@@ -528,7 +585,14 @@ def render_sidebar() -> None:
                 if not folder_path.exists():
                     st.error("입력한 폴더를 찾을 수 없습니다.")
                 else:
-                    update_settings(SETTINGS_FILE, {"last_folder": str(folder_path.resolve())})
+                    update_settings(
+                        SETTINGS_FILE,
+                        {
+                            "last_folder": str(folder_path.resolve()),
+                            "source_folder": str(folder_path.resolve()),
+                        },
+                    )
+                    st.session_state.source_folder = str(folder_path.resolve())
                     with st.spinner("PDF를 읽고 색인을 만드는 중입니다..."):
                         index_data = build_index_from_folder(folder_path)
                         record_id = save_index_to_db(index_data, DB_FILE, label=str(folder_path.resolve()))

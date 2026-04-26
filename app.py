@@ -238,12 +238,15 @@ VIEWER_HTML_TEMPLATE = """
       transform: none;
     }
     .textLayer .highlight {
-      background: rgba(0, 120, 215, 0.32);
+      background: rgba(0, 120, 215, 0.82);
+      color: #ffffff !important;
       border-radius: 2px;
-      box-shadow: inset 0 0 0 9999px rgba(0, 120, 215, 0.22);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset;
+      text-shadow: none;
     }
     .textLayer ::selection {
-      background: rgba(0, 120, 215, 0.38);
+      background: rgba(0, 120, 215, 0.82);
+      color: #ffffff;
     }
     .error {
       margin: 24px auto;
@@ -356,10 +359,11 @@ VIEWER_HTML_TEMPLATE = """
           span.appendChild(beforeNode);
         }
 
-        const mark = document.createElement("span");
-        mark.className = "highlight";
-        mark.textContent = match;
-        span.appendChild(mark);
+          const mark = document.createElement("span");
+          mark.className = "highlight";
+          mark.textContent = match;
+          mark.style.color = "#ffffff";
+          span.appendChild(mark);
 
         if (after) {
           const afterNode = document.createElement("span");

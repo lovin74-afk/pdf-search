@@ -323,6 +323,17 @@ VIEWER_HTML_TEMPLATE = """
       word-break: break-word;
       color: var(--muted);
     }
+    .textLayer .highlight {
+      background: rgba(0, 120, 215, 0.42) !important;
+      color: transparent !important;
+      border-radius: 2px;
+      box-shadow: 0 0 0 1px rgba(0, 120, 215, 0.18) inset !important;
+      text-shadow: none !important;
+    }
+    .textLayer .highlight::selection {
+      background: rgba(0, 120, 215, 0.46) !important;
+      color: transparent !important;
+    }
   </style>
 </head>
 <body>
@@ -429,8 +440,8 @@ VIEWER_HTML_TEMPLATE = """
         const mark = document.createElement("span");
         mark.className = "highlight";
         mark.textContent = match;
-        mark.style.color = "#ffffff";
-        span.appendChild(mark);
+          mark.style.color = "transparent";
+          span.appendChild(mark);
         currentMatches.push(mark);
 
         if (after) {

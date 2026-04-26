@@ -11,6 +11,7 @@ def build_pdf_viewer_link(
     x: float,
     y: float,
     font_size: float,
+    access_token: str = "",
 ) -> str | None:
     if not file_path and not file_name:
         return None
@@ -32,4 +33,6 @@ def build_pdf_viewer_link(
     normalized_query = query.strip()
     if normalized_query:
         params.append(f"query={quote(normalized_query)}")
+    if access_token:
+        params.append(f"access_token={quote(access_token)}")
     return f"?{'&'.join(params)}"

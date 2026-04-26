@@ -100,6 +100,20 @@ def check_credentials(username: str, password: str) -> bool:
     return hmac.compare_digest(username, expected_username) and hmac.compare_digest(password, expected_password)
 
 
+def build_viewer_access_token(file_path: str, file_name: str, page_number: int, query: str) -> str:
+    _, expected_password = get_auth_credentials()
+    message = f"{file_path}|{file_name}|{page_number}|{query.strip()}".encode("utf-8")
+    return hmac.new(expected_password.encode("utf-8"), message, "sha256").hexdigest()
+
+
+def is_valid_viewer_access_token(file_path: str, file_name: str, page_number: int, query: str, access_token: str) -> bool:
+    expected_username, expected_password = get_auth_credentials()
+    if not expected_username or not expected_password or not access_token:
+        return False
+    expected_token = build_viewer_access_token(file_path, file_name, page_number, query)
+    return hmac.compare_digest(access_token, expected_token)
+
+
 RESULT_BOX_STYLE = """
 <style>
 .result-snippet-box {
@@ -559,6 +573,7 @@ def render_pdf_viewer_mode() -> bool:
     file_path = st.query_params.get("path", "")
     file_name = st.query_params.get("file_name", "")
     query = st.query_params.get("query", "")
+    access_token = st.query_params.get("access_token", "")
     page_raw = st.query_params.get("page", "1")
 
     try:
@@ -568,6 +583,11 @@ def render_pdf_viewer_mode() -> bool:
 
     resolved_path = resolve_pdf_path(file_path, file_name)
     st.set_page_config(page_title="PDF Viewer", page_icon="PDF", layout="wide")
+
+    if not is_valid_viewer_access_token(file_path, file_name, page_number, query, access_token):
+        st.error("원본 파일 링크 인증이 유효하지 않습니다.")
+        st.caption("검색 결과 화면에서 다시 원본 보기 링크를 눌러 주세요.")
+        return True
 
     if resolved_path is None:
         st.error("PDF 파일을 찾을 수 없습니다.")
@@ -594,6 +614,12 @@ def render_result_card(result: dict, query: str) -> None:
     resolved_pdf = resolve_pdf_path(result["file_path"], result["file_name"])
     viewer_link = None
     if resolved_pdf is not None:
+        access_token = build_viewer_access_token(
+            str(resolved_pdf),
+            result["file_name"],
+            result["page_number"],
+            query,
+        )
         viewer_link = build_pdf_viewer_link(
             str(resolved_pdf),
             result["file_name"],
@@ -602,6 +628,7 @@ def render_result_card(result: dict, query: str) -> None:
             result["x"],
             result["y"],
             result["font_size"],
+            access_token=access_token,
         )
     if viewer_link:
         title = (
@@ -877,10 +904,10 @@ def main() -> None:
     st.set_page_config(page_title="PDF Searcher", page_icon="PDF", layout="wide")
     ensure_state()
 
-    if not render_login_gate():
+    if render_pdf_viewer_mode():
         return
 
-    if render_pdf_viewer_mode():
+    if not render_login_gate():
         return
 
     process_recent_search_action()

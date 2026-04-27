@@ -419,18 +419,20 @@ VIEWER_HTML_TEMPLATE = """
     }
 
     function createHighlightOverlay(itemInfo, matchStart, matchLength) {
-      const { text, left, top, width, height, span } = itemInfo;
+      const { text, left, width, span } = itemInfo;
       const beforeText = text.slice(0, matchStart);
       const matchText = text.slice(matchStart, matchStart + matchLength);
       const beforeRatio = measureSubstringRatio(text, beforeText, span);
       const matchRatio = measureSubstringRatio(text, matchText, span);
-      const verticalInset = Math.max(1, height * 0.08);
-      const overlayHeight = Math.max(10, height + verticalInset * 2);
+      const textLayerRect = document.getElementById("textLayer").getBoundingClientRect();
+      const spanRect = span.getBoundingClientRect();
+      const overlayTop = Math.max(0, spanRect.top - textLayerRect.top);
+      const overlayHeight = Math.max(8, spanRect.height);
 
       const overlay = document.createElement("div");
       overlay.className = "match-overlay";
       overlay.style.left = `${left + width * beforeRatio}px`;
-      overlay.style.top = `${top - verticalInset}px`;
+      overlay.style.top = `${overlayTop}px`;
       overlay.style.width = `${Math.max(1, width * matchRatio)}px`;
       overlay.style.height = `${overlayHeight}px`;
       return overlay;

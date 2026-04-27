@@ -427,8 +427,8 @@ VIEWER_HTML_TEMPLATE = """
       const textLayerRect = document.getElementById("textLayer").getBoundingClientRect();
       const spanRect = span.getBoundingClientRect();
       const verticalPadding = Math.max(1.5, spanRect.height * 0.12);
-      const overlayTop = Math.max(0, spanRect.top - textLayerRect.top - verticalPadding * 0.05);
-      const overlayHeight = Math.max(8, spanRect.height + verticalPadding * 1.35);
+      const overlayTop = Math.max(0, spanRect.top - textLayerRect.top - verticalPadding * 0.03);
+      const overlayHeight = Math.max(8, spanRect.height + verticalPadding * 1.55);
 
       const overlay = document.createElement("div");
       overlay.className = "match-overlay";

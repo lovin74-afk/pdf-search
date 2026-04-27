@@ -324,19 +324,29 @@ VIEWER_HTML_TEMPLATE = """
       color: var(--muted);
     }
     .textLayer .highlight {
+      display: inline-block !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      line-height: 1 !important;
+      letter-spacing: 0 !important;
+    }
+    .textLayer .highlight-char {
+      display: inline-block !important;
       background: rgba(0, 120, 215, 0.42) !important;
       color: transparent !important;
       border-radius: 2px;
       box-shadow: 0 0 0 1px rgba(0, 120, 215, 0.18) inset !important;
       text-shadow: none !important;
-      display: inline-block !important;
-      width: fit-content !important;
       padding: 0 !important;
       margin: 0 !important;
       line-height: 1 !important;
       letter-spacing: 0 !important;
     }
     .textLayer .highlight::selection {
+      background: rgba(0, 120, 215, 0.46) !important;
+      color: transparent !important;
+    }
+    .textLayer .highlight-char::selection {
       background: rgba(0, 120, 215, 0.46) !important;
       color: transparent !important;
     }
@@ -410,6 +420,18 @@ VIEWER_HTML_TEMPLATE = """
       window.getSelection()?.removeAllRanges();
     }
 
+    function createHighlightedFragment(text) {
+      const wrapper = document.createElement("span");
+      wrapper.className = "highlight";
+      for (const char of Array.from(text)) {
+        const charNode = document.createElement("span");
+        charNode.className = "highlight-char";
+        charNode.textContent = char;
+        wrapper.appendChild(charNode);
+      }
+      return wrapper;
+    }
+
     function focusMatch(index) {
       if (!currentMatches.length) return;
       currentMatchIndex = ((index % currentMatches.length) + currentMatches.length) % currentMatches.length;
@@ -443,11 +465,8 @@ VIEWER_HTML_TEMPLATE = """
           span.appendChild(beforeNode);
         }
 
-        const mark = document.createElement("span");
-        mark.className = "highlight";
-        mark.textContent = match;
-          mark.style.color = "transparent";
-          span.appendChild(mark);
+        const mark = createHighlightedFragment(match);
+        span.appendChild(mark);
         currentMatches.push(mark);
 
         if (after) {

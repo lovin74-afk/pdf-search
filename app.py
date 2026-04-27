@@ -323,34 +323,14 @@ VIEWER_HTML_TEMPLATE = """
       word-break: break-word;
       color: var(--muted);
     }
-    .textLayer .highlight {
-      display: inline-block !important;
-      background: transparent !important;
-      box-shadow: none !important;
-      padding: 0 !important;
-      margin: 0 !important;
-      line-height: 1 !important;
-      letter-spacing: 0 !important;
-    }
-    .textLayer .highlight-char {
-      display: inline !important;
-      background: rgba(0, 120, 215, 0.22) !important;
-      color: transparent !important;
-      border-radius: 1px;
-      box-shadow: none !important;
-      text-shadow: none !important;
-      padding: 0 !important;
-      margin: 0 !important;
-      line-height: 1 !important;
-      letter-spacing: 0 !important;
-    }
-    .textLayer .highlight::selection {
+    .textLayer .highlight-overlay {
+      position: absolute !important;
+      top: 0 !important;
+      bottom: 0 !important;
       background: rgba(0, 120, 215, 0.24) !important;
-      color: transparent !important;
-    }
-    .textLayer .highlight-char::selection {
-      background: rgba(0, 120, 215, 0.24) !important;
-      color: transparent !important;
+      border-radius: 2px;
+      box-shadow: inset 0 0 0 1px rgba(0, 120, 215, 0.12) !important;
+      pointer-events: none;
     }
   </style>
 </head>
@@ -415,6 +395,7 @@ VIEWER_HTML_TEMPLATE = """
       const spans = Array.from(document.querySelectorAll("#textLayer > span"));
       for (const span of spans) {
         resetSpan(span);
+        span.querySelectorAll(".highlight-overlay").forEach((node) => node.remove());
       }
       currentMatches = [];
       currentMatchIndex = -1;
@@ -422,16 +403,26 @@ VIEWER_HTML_TEMPLATE = """
       window.getSelection()?.removeAllRanges();
     }
 
-    function createHighlightedFragment(text) {
-      const wrapper = document.createElement("span");
-      wrapper.className = "highlight";
-      for (const char of Array.from(text)) {
-        const charNode = document.createElement("span");
-        charNode.className = "highlight-char";
-        charNode.textContent = char;
-        wrapper.appendChild(charNode);
-      }
-      return wrapper;
+    function measureTextWidth(text, span) {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const computed = window.getComputedStyle(span);
+      ctx.font = `${computed.fontSize} ${computed.fontFamily}`;
+      return ctx.measureText(text).width;
+    }
+
+    function createHighlightOverlayForSpan(span, fullText, beforeText, matchText) {
+      const fullWidth = measureTextWidth(fullText, span);
+      const beforeWidth = measureTextWidth(beforeText, span);
+      const matchWidth = measureTextWidth(matchText, span);
+      const spanWidth = span.getBoundingClientRect().width;
+      const ratio = fullWidth > 0 ? spanWidth / fullWidth : 1;
+
+      const overlay = document.createElement("span");
+      overlay.className = "highlight-overlay";
+      overlay.style.left = `${beforeWidth * ratio}px`;
+      overlay.style.width = `${Math.max(1, matchWidth * ratio)}px`;
+      return overlay;
     }
 
     function focusMatch(index) {
@@ -458,24 +449,9 @@ VIEWER_HTML_TEMPLATE = """
 
         const before = text.slice(0, matchIndex);
         const match = text.slice(matchIndex, matchIndex + trimmed.length);
-        const after = text.slice(matchIndex + trimmed.length);
-        span.innerHTML = "";
-
-        if (before) {
-          const beforeNode = document.createElement("span");
-          beforeNode.textContent = before;
-          span.appendChild(beforeNode);
-        }
-
-        const mark = createHighlightedFragment(match);
-        span.appendChild(mark);
-        currentMatches.push(mark);
-
-        if (after) {
-          const afterNode = document.createElement("span");
-          afterNode.textContent = after;
-          span.appendChild(afterNode);
-        }
+        const overlay = createHighlightOverlayForSpan(span, text, before, match);
+        span.appendChild(overlay);
+        currentMatches.push(overlay);
       }
 
       if (currentMatches.length) {

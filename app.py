@@ -325,17 +325,19 @@ VIEWER_HTML_TEMPLATE = """
     }
     .textLayer .highlight {
       display: inline-block !important;
+      background: transparent !important;
+      box-shadow: none !important;
       padding: 0 !important;
       margin: 0 !important;
       line-height: 1 !important;
       letter-spacing: 0 !important;
     }
     .textLayer .highlight-char {
-      display: inline-block !important;
-      background: rgba(0, 120, 215, 0.42) !important;
+      display: inline !important;
+      background: rgba(0, 120, 215, 0.22) !important;
       color: transparent !important;
-      border-radius: 2px;
-      box-shadow: 0 0 0 1px rgba(0, 120, 215, 0.18) inset !important;
+      border-radius: 1px;
+      box-shadow: none !important;
       text-shadow: none !important;
       padding: 0 !important;
       margin: 0 !important;
@@ -343,11 +345,11 @@ VIEWER_HTML_TEMPLATE = """
       letter-spacing: 0 !important;
     }
     .textLayer .highlight::selection {
-      background: rgba(0, 120, 215, 0.46) !important;
+      background: rgba(0, 120, 215, 0.24) !important;
       color: transparent !important;
     }
     .textLayer .highlight-char::selection {
-      background: rgba(0, 120, 215, 0.46) !important;
+      background: rgba(0, 120, 215, 0.24) !important;
       color: transparent !important;
     }
   </style>

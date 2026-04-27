@@ -329,6 +329,12 @@ VIEWER_HTML_TEMPLATE = """
       border-radius: 2px;
       box-shadow: 0 0 0 1px rgba(0, 120, 215, 0.18) inset !important;
       text-shadow: none !important;
+      display: inline-block !important;
+      width: fit-content !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      line-height: 1 !important;
+      letter-spacing: 0 !important;
     }
     .textLayer .highlight::selection {
       background: rgba(0, 120, 215, 0.46) !important;

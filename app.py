@@ -403,25 +403,26 @@ VIEWER_HTML_TEMPLATE = """
       window.getSelection()?.removeAllRanges();
     }
 
-    function measureTextWidth(text, span) {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      const computed = window.getComputedStyle(span);
-      ctx.font = `${computed.fontSize} ${computed.fontFamily}`;
-      return ctx.measureText(text).width;
-    }
+    function createHighlightOverlayForSpan(span, matchStart, matchEnd) {
+      const textNode = span.firstChild;
+      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
+        return null;
+      }
 
-    function createHighlightOverlayForSpan(span, fullText, beforeText, matchText) {
-      const fullWidth = measureTextWidth(fullText, span);
-      const beforeWidth = measureTextWidth(beforeText, span);
-      const matchWidth = measureTextWidth(matchText, span);
-      const spanWidth = span.getBoundingClientRect().width;
-      const ratio = fullWidth > 0 ? spanWidth / fullWidth : 1;
+      const range = document.createRange();
+      range.setStart(textNode, matchStart);
+      range.setEnd(textNode, matchEnd);
+
+      const matchRect = range.getBoundingClientRect();
+      const spanRect = span.getBoundingClientRect();
+      if (!matchRect.width || !spanRect.width) {
+        return null;
+      }
 
       const overlay = document.createElement("span");
       overlay.className = "highlight-overlay";
-      overlay.style.left = `${beforeWidth * ratio}px`;
-      overlay.style.width = `${Math.max(1, matchWidth * ratio)}px`;
+      overlay.style.left = `${Math.max(0, matchRect.left - spanRect.left)}px`;
+      overlay.style.width = `${Math.max(1, matchRect.width)}px`;
       return overlay;
     }
 
@@ -447,9 +448,9 @@ VIEWER_HTML_TEMPLATE = """
         const matchIndex = lowerText.indexOf(lowerTerm);
         if (matchIndex === -1) continue;
 
-        const before = text.slice(0, matchIndex);
         const match = text.slice(matchIndex, matchIndex + trimmed.length);
-        const overlay = createHighlightOverlayForSpan(span, text, before, match);
+        const overlay = createHighlightOverlayForSpan(span, matchIndex, matchIndex + match.length);
+        if (!overlay) continue;
         span.appendChild(overlay);
         currentMatches.push(overlay);
       }

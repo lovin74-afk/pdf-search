@@ -424,13 +424,15 @@ VIEWER_HTML_TEMPLATE = """
       const matchText = text.slice(matchStart, matchStart + matchLength);
       const beforeRatio = measureSubstringRatio(text, beforeText, span);
       const matchRatio = measureSubstringRatio(text, matchText, span);
+      const verticalInset = Math.max(1, height * 0.08);
+      const overlayHeight = Math.max(10, height + verticalInset * 2);
 
       const overlay = document.createElement("div");
       overlay.className = "match-overlay";
       overlay.style.left = `${left + width * beforeRatio}px`;
-      overlay.style.top = `${top}px`;
+      overlay.style.top = `${top - verticalInset}px`;
       overlay.style.width = `${Math.max(1, width * matchRatio)}px`;
-      overlay.style.height = `${Math.max(8, height)}px`;
+      overlay.style.height = `${overlayHeight}px`;
       return overlay;
     }
 

@@ -323,14 +323,21 @@ VIEWER_HTML_TEMPLATE = """
       word-break: break-word;
       color: var(--muted);
     }
-    .textLayer .highlight-overlay {
-      position: absolute !important;
-      top: 0 !important;
-      bottom: 0 !important;
+    .textLayer .highlight {
+      display: inline !important;
+      background: rgba(0, 120, 215, 0.22) !important;
+      color: transparent !important;
+      border-radius: 1px;
+      box-shadow: none !important;
+      text-shadow: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      line-height: 1 !important;
+      letter-spacing: 0 !important;
+    }
+    .textLayer .highlight::selection {
       background: rgba(0, 120, 215, 0.24) !important;
-      border-radius: 2px;
-      box-shadow: inset 0 0 0 1px rgba(0, 120, 215, 0.12) !important;
-      pointer-events: none;
+      color: transparent !important;
     }
   </style>
 </head>
@@ -395,35 +402,11 @@ VIEWER_HTML_TEMPLATE = """
       const spans = Array.from(document.querySelectorAll("#textLayer > span"));
       for (const span of spans) {
         resetSpan(span);
-        span.querySelectorAll(".highlight-overlay").forEach((node) => node.remove());
       }
       currentMatches = [];
       currentMatchIndex = -1;
       document.getElementById("searchCount").textContent = "";
       window.getSelection()?.removeAllRanges();
-    }
-
-    function createHighlightOverlayForSpan(span, matchStart, matchEnd) {
-      const textNode = span.firstChild;
-      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
-        return null;
-      }
-
-      const range = document.createRange();
-      range.setStart(textNode, matchStart);
-      range.setEnd(textNode, matchEnd);
-
-      const matchRect = range.getBoundingClientRect();
-      const spanRect = span.getBoundingClientRect();
-      if (!matchRect.width || !spanRect.width) {
-        return null;
-      }
-
-      const overlay = document.createElement("span");
-      overlay.className = "highlight-overlay";
-      overlay.style.left = `${Math.max(0, matchRect.left - spanRect.left)}px`;
-      overlay.style.width = `${Math.max(1, matchRect.width)}px`;
-      return overlay;
     }
 
     function focusMatch(index) {
@@ -449,10 +432,23 @@ VIEWER_HTML_TEMPLATE = """
         if (matchIndex === -1) continue;
 
         const match = text.slice(matchIndex, matchIndex + trimmed.length);
-        const overlay = createHighlightOverlayForSpan(span, matchIndex, matchIndex + match.length);
-        if (!overlay) continue;
-        span.appendChild(overlay);
-        currentMatches.push(overlay);
+        const before = text.slice(0, matchIndex);
+        const after = text.slice(matchIndex + match.length);
+
+        span.innerHTML = "";
+        if (before) {
+          span.appendChild(document.createTextNode(before));
+        }
+
+        const mark = document.createElement("span");
+        mark.className = "highlight";
+        mark.textContent = match;
+        span.appendChild(mark);
+        currentMatches.push(mark);
+
+        if (after) {
+          span.appendChild(document.createTextNode(after));
+        }
       }
 
       if (currentMatches.length) {

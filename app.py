@@ -167,10 +167,12 @@ RESULT_BOX_STYLE = """
 
 VIEWER_HTML_TEMPLATE = """
 <!doctype html>
-<html lang="ko">
+<html lang="ko-KR" translate="no">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Language" content="ko-KR" />
+  <meta name="google" content="notranslate" />
   <title>PDF Viewer</title>
   <style>
     :root {
@@ -337,7 +339,7 @@ VIEWER_HTML_TEMPLATE = """
     }
   </style>
 </head>
-<body>
+<body translate="no">
   <div class="topbar">
     <span class="badge" id="pageLabel"></span>
     <strong id="fileLabel"></strong>

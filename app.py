@@ -426,8 +426,9 @@ VIEWER_HTML_TEMPLATE = """
       const matchRatio = measureSubstringRatio(text, matchText, span);
       const textLayerRect = document.getElementById("textLayer").getBoundingClientRect();
       const spanRect = span.getBoundingClientRect();
-      const overlayTop = Math.max(0, spanRect.top - textLayerRect.top);
-      const overlayHeight = Math.max(8, spanRect.height);
+      const verticalPadding = Math.max(1.5, spanRect.height * 0.12);
+      const overlayTop = Math.max(0, spanRect.top - textLayerRect.top - verticalPadding * 0.35);
+      const overlayHeight = Math.max(8, spanRect.height + verticalPadding);
 
       const overlay = document.createElement("div");
       overlay.className = "match-overlay";

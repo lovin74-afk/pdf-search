@@ -286,6 +286,12 @@ VIEWER_HTML_TEMPLATE = """
       overflow: hidden;
       line-height: 1;
     }
+    .overlayLayer {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
     .textLayer span {
       position: absolute;
       white-space: pre;
@@ -323,36 +329,11 @@ VIEWER_HTML_TEMPLATE = """
       word-break: break-word;
       color: var(--muted);
     }
-    .textLayer .highlight {
-      display: inline !important;
-      background: transparent !important;
-      color: transparent !important;
-      box-shadow: none !important;
-      text-shadow: none !important;
-      padding: 0 !important;
-      margin: 0 !important;
-      line-height: 1 !important;
-      letter-spacing: 0 !important;
-    }
-    .textLayer .highlight::selection {
-      background: transparent !important;
-      color: transparent !important;
-    }
-    .textLayer .highlight-char {
-      display: inline !important;
-      background: rgba(0, 120, 215, 0.22) !important;
-      color: transparent !important;
-      border-radius: 1px;
-      box-shadow: none !important;
-      text-shadow: none !important;
-      padding: 0 !important;
-      margin: 0 !important;
-      line-height: 1 !important;
-      letter-spacing: 0 !important;
-    }
-    .textLayer .highlight-char::selection {
-      background: rgba(0, 120, 215, 0.24) !important;
-      color: transparent !important;
+    .match-overlay {
+      position: absolute;
+      background: rgba(0, 120, 215, 0.24);
+      border-radius: 2px;
+      box-shadow: inset 0 0 0 1px rgba(0, 120, 215, 0.12);
     }
   </style>
 </head>
@@ -372,6 +353,7 @@ VIEWER_HTML_TEMPLATE = """
   <div id="viewer">
     <div class="page-wrap">
       <canvas id="pdfCanvas"></canvas>
+      <div id="overlayLayer" class="overlayLayer"></div>
       <div id="textLayer" class="textLayer"></div>
     </div>
   </div>
@@ -385,6 +367,7 @@ VIEWER_HTML_TEMPLATE = """
     const fileName = payload.file_name || "PDF";
     let currentMatches = [];
     let currentMatchIndex = -1;
+    let renderedItems = [];
 
     document.getElementById("pageLabel").textContent = `${pageNumber}페이지`;
     document.getElementById("fileLabel").textContent = fileName;
@@ -418,22 +401,37 @@ VIEWER_HTML_TEMPLATE = """
       for (const span of spans) {
         resetSpan(span);
       }
+      document.getElementById("overlayLayer").innerHTML = "";
       currentMatches = [];
       currentMatchIndex = -1;
       document.getElementById("searchCount").textContent = "";
       window.getSelection()?.removeAllRanges();
     }
 
-    function createHighlightedFragment(text) {
-      const wrapper = document.createElement("span");
-      wrapper.className = "highlight";
-      for (const char of Array.from(text)) {
-        const charNode = document.createElement("span");
-        charNode.className = "highlight-char";
-        charNode.textContent = char;
-        wrapper.appendChild(charNode);
-      }
-      return wrapper;
+    function measureSubstringRatio(fullText, subText, span) {
+      const computed = window.getComputedStyle(span);
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      ctx.font = `${computed.fontSize} ${computed.fontFamily}`;
+      const fullWidth = ctx.measureText(fullText).width || 1;
+      const subWidth = ctx.measureText(subText).width;
+      return subWidth / fullWidth;
+    }
+
+    function createHighlightOverlay(itemInfo, matchStart, matchLength) {
+      const { text, left, top, width, height, span } = itemInfo;
+      const beforeText = text.slice(0, matchStart);
+      const matchText = text.slice(matchStart, matchStart + matchLength);
+      const beforeRatio = measureSubstringRatio(text, beforeText, span);
+      const matchRatio = measureSubstringRatio(text, matchText, span);
+
+      const overlay = document.createElement("div");
+      overlay.className = "match-overlay";
+      overlay.style.left = `${left + width * beforeRatio}px`;
+      overlay.style.top = `${top}px`;
+      overlay.style.width = `${Math.max(1, width * matchRatio)}px`;
+      overlay.style.height = `${Math.max(8, height)}px`;
+      return overlay;
     }
 
     function focusMatch(index) {
@@ -450,30 +448,18 @@ VIEWER_HTML_TEMPLATE = """
       if (!trimmed) return;
 
       const lowerTerm = trimmed.toLocaleLowerCase();
-      const spans = Array.from(document.querySelectorAll("#textLayer > span"));
+      const overlayLayer = document.getElementById("overlayLayer");
 
-      for (const span of spans) {
-        const text = span.dataset.originalText || span.textContent || "";
+      for (const itemInfo of renderedItems) {
+        const text = itemInfo.text || "";
         const lowerText = text.toLocaleLowerCase();
         const matchIndex = lowerText.indexOf(lowerTerm);
         if (matchIndex === -1) continue;
 
         const match = text.slice(matchIndex, matchIndex + trimmed.length);
-        const before = text.slice(0, matchIndex);
-        const after = text.slice(matchIndex + match.length);
-
-        span.innerHTML = "";
-        if (before) {
-          span.appendChild(document.createTextNode(before));
-        }
-
-        const mark = createHighlightedFragment(match);
-        span.appendChild(mark);
-        currentMatches.push(mark);
-
-        if (after) {
-          span.appendChild(document.createTextNode(after));
-        }
+        const overlay = createHighlightOverlay(itemInfo, matchIndex, match.length);
+        overlayLayer.appendChild(overlay);
+        currentMatches.push(overlay);
       }
 
       if (currentMatches.length) {
@@ -491,6 +477,7 @@ VIEWER_HTML_TEMPLATE = """
       const canvas = document.getElementById("pdfCanvas");
       const context = canvas.getContext("2d");
       const textLayer = document.getElementById("textLayer");
+      const overlayLayer = document.getElementById("overlayLayer");
 
       canvas.width = viewport.width;
       canvas.height = viewport.height;
@@ -498,7 +485,11 @@ VIEWER_HTML_TEMPLATE = """
       canvas.style.height = viewport.height + "px";
       textLayer.style.width = viewport.width + "px";
       textLayer.style.height = viewport.height + "px";
+      overlayLayer.style.width = viewport.width + "px";
+      overlayLayer.style.height = viewport.height + "px";
       textLayer.innerHTML = "";
+      overlayLayer.innerHTML = "";
+      renderedItems = [];
 
       await page.render({ canvasContext: context, viewport }).promise;
 
@@ -514,6 +505,14 @@ VIEWER_HTML_TEMPLATE = """
         span.style.fontFamily = item.fontName || "sans-serif";
         span.style.transform = `scaleX(${tx[0] / (item.height || 1)})`;
         textLayer.appendChild(span);
+        renderedItems.push({
+          text: item.str,
+          left: tx[4],
+          top: tx[5] - item.height * viewport.scale,
+          width: item.width * viewport.scale,
+          height: item.height * viewport.scale,
+          span,
+        });
       }
 
       applySearch(query);

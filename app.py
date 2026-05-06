@@ -32,6 +32,11 @@ from pdf_searcher.indexer import (
     build_index_from_uploaded_files,
 )
 from pdf_searcher.links import build_pdf_viewer_link
+from pdf_searcher.persistence import (
+    backup_state_to_github,
+    is_persistence_configured,
+    restore_state_from_github,
+)
 from pdf_searcher.settings import load_settings, update_settings
 from pdf_searcher.search import search_index
 
@@ -39,6 +44,25 @@ from pdf_searcher.search import search_index
 DB_FILE = Path(".pdf_search_index") / "indexes.db"
 SETTINGS_FILE = Path(".pdf_search_index") / "settings.json"
 UPLOADED_ORIGINALS_DIR = Path(".uploaded_originals")
+
+
+def persist_state() -> bool:
+    try:
+        return backup_state_to_github(DB_FILE.parent, UPLOADED_ORIGINALS_DIR, SETTINGS_FILE)
+    except Exception:
+        return False
+
+
+def update_persistent_settings(updates: dict) -> bool:
+    current = load_settings(SETTINGS_FILE)
+    changed_updates = {
+        key: value for key, value in updates.items() if current.get(key) != value
+    }
+    if not changed_updates:
+        return False
+    update_settings(SETTINGS_FILE, changed_updates)
+    persist_state()
+    return True
 
 
 def highlight_query(text: str, query: str) -> str:
@@ -61,6 +85,23 @@ def normalize_recent_searches(values: list[str]) -> list[str]:
         seen.add(cleaned)
         normalized.append(cleaned)
     return normalized[:5]
+
+
+def restore_persistent_state_once() -> None:
+    if st.session_state.get("cloud_restore_attempted"):
+        return
+    st.session_state.cloud_restore_attempted = True
+    st.session_state.cloud_state_restored = False
+    if not is_persistence_configured():
+        return
+    try:
+        st.session_state.cloud_state_restored = restore_state_from_github(
+            DB_FILE.parent,
+            UPLOADED_ORIGINALS_DIR,
+            SETTINGS_FILE,
+        )
+    except Exception:
+        st.session_state.cloud_state_restored = False
 
 
 def get_auth_credentials() -> tuple[str, str]:
@@ -598,6 +639,10 @@ def ensure_state() -> None:
         st.session_state.search_input_pending = ""
     if "recent_searches" not in st.session_state:
         st.session_state.recent_searches = []
+    if "cloud_restore_attempted" not in st.session_state:
+        st.session_state.cloud_restore_attempted = False
+    if "cloud_state_restored" not in st.session_state:
+        st.session_state.cloud_state_restored = False
 
     if st.session_state.folder_input_pending:
         st.session_state.folder_input = st.session_state.folder_input_pending
@@ -610,6 +655,8 @@ def ensure_state() -> None:
     if st.session_state.search_input_pending:
         st.session_state.search_input = st.session_state.search_input_pending
         st.session_state.search_input_pending = ""
+
+    restore_persistent_state_once()
 
     settings = load_settings(SETTINGS_FILE)
     if not st.session_state.folder_input:
@@ -708,6 +755,8 @@ def save_uploaded_originals(files) -> int:
         target = UPLOADED_ORIGINALS_DIR / file.name
         target.write_bytes(file.getbuffer())
         saved_count += 1
+    if saved_count:
+        persist_state()
     return saved_count
 
 
@@ -884,10 +933,12 @@ def render_sidebar() -> None:
                 selected = choose_folder()
                 if selected:
                     st.session_state.folder_input_pending = selected
-                    update_settings(SETTINGS_FILE, {"last_folder": selected})
+                    update_persistent_settings({"last_folder": selected})
                     st.rerun()
         else:
             st.caption("이 배포 환경에서는 폴더 선택 창을 지원하지 않아 경로를 직접 입력해야 합니다.")
+        if is_persistence_configured():
+            st.caption("휴면 복구용 상태 백업이 켜져 있어 색인 DB와 업로드한 원본 PDF를 GitHub에 함께 보관합니다.")
 
         st.divider()
         st.subheader("원본 파일 위치")
@@ -902,13 +953,12 @@ def render_sidebar() -> None:
                 selected = choose_folder()
                 if selected:
                     st.session_state.source_folder_pending = selected
-                    update_settings(SETTINGS_FILE, {"source_folder": selected})
+                    update_persistent_settings({"source_folder": selected})
                     st.rerun()
         else:
             st.caption("이 배포 환경에서는 폴더 선택 창을 지원하지 않아 경로를 직접 입력해야 합니다.")
 
-        if source_folder.strip():
-            update_settings(SETTINGS_FILE, {"source_folder": source_folder.strip()})
+        update_persistent_settings({"source_folder": source_folder.strip()})
 
         original_uploads = st.file_uploader(
             "또는 원본 PDF 업로드",
@@ -931,8 +981,7 @@ def render_sidebar() -> None:
                 if not folder_path.exists():
                     st.error("입력한 폴더를 찾을 수 없습니다.")
                 else:
-                    update_settings(
-                        SETTINGS_FILE,
+                    update_persistent_settings(
                         {
                             "last_folder": str(folder_path.resolve()),
                             "source_folder": str(folder_path.resolve()),
@@ -944,6 +993,7 @@ def render_sidebar() -> None:
                         record_id = save_index_to_db(index_data, DB_FILE, label=str(folder_path.resolve()))
                         st.session_state.index_data = index_data
                         st.session_state.index_source = f"{folder_path} (DB #{record_id})"
+                        persist_state()
                     st.success(
                         f"{index_data['summary']['file_count']}개 PDF, "
                         f"{index_data['summary']['page_count']}개 페이지를 색인했고 DB에 저장했습니다."
@@ -963,6 +1013,7 @@ def render_sidebar() -> None:
                     record_id = save_index_to_db(index_data, DB_FILE, label="uploaded files")
                     st.session_state.index_data = index_data
                     st.session_state.index_source = f"uploaded files (DB #{record_id})"
+                    persist_state()
                 st.success(
                     f"{index_data['summary']['file_count']}개 PDF를 색인했고 DB에 저장했습니다."
                 )
@@ -989,7 +1040,7 @@ def save_recent_search(query: str) -> None:
         return
     recent = [cleaned, *st.session_state.recent_searches]
     st.session_state.recent_searches = normalize_recent_searches(recent)
-    update_settings(SETTINGS_FILE, {"recent_searches": st.session_state.recent_searches})
+    update_persistent_settings({"recent_searches": st.session_state.recent_searches})
 
 
 def on_search_input_change() -> None:
@@ -998,7 +1049,7 @@ def on_search_input_change() -> None:
 
 def delete_recent_search(query: str) -> None:
     st.session_state.recent_searches = [item for item in st.session_state.recent_searches if item != query]
-    update_settings(SETTINGS_FILE, {"recent_searches": st.session_state.recent_searches})
+    update_persistent_settings({"recent_searches": st.session_state.recent_searches})
 
 
 def process_recent_search_action() -> None:

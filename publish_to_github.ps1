@@ -33,5 +33,16 @@ Remove-TrackedPathIfExists "pdf_searcher/__pycache__"
 Remove-TrackedPathIfExists "tests/__pycache__"
 
 git add -A
-git commit -m $Message
+$hasChanges = $false
+$null = git diff --cached --quiet
+if ($LASTEXITCODE -ne 0) {
+    $hasChanges = $true
+}
+
+if ($hasChanges) {
+    git commit -m $Message
+}
+
+git fetch origin main
+git rebase origin/main
 git push -u origin main
